@@ -1,0 +1,763 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.Script.Services;
+using System.Web.Services;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using System.Web.UI.WebControls.WebParts;
+using AjaxControlToolkit;
+using Realtor;
+
+namespace WebRealtor
+{
+    public partial class BuildingInfo : Page
+    {
+        private int iBuildingID = -1;
+        private int iStartupType = -1;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            var id = Request.QueryString["id"];
+            if (!string.IsNullOrEmpty(id))
+            {
+                try
+                {
+                    iBuildingID = int.Parse(id);
+                }
+                catch (FormatException)
+                {
+                    Response.Redirect("~/Default.aspx");
+                }
+            }
+
+            var t = Request.QueryString["t"];
+            if (!string.IsNullOrEmpty(t))
+            {
+                try
+                {
+                    iStartupType = int.Parse(t);
+                }
+                catch (FormatException)
+                {
+                    iStartupType = -1;
+                }
+            }
+
+            if (!Page.IsPostBack)
+            {
+                using (var context = new RealtorEntities())
+                {
+                    #region Load DDL
+
+                    if (iStartupType != -1)
+                    {
+                        var actions = new List<int>();
+
+                        if (iStartupType == 1)
+                        {
+                            actions.Add(1);
+                            actions.Add(8);
+                        }
+                        if (iStartupType == 2)
+                        {
+                            actions.Add(2);
+                            actions.Add(3);
+                        }
+
+                        ddlType.DataSource = context.Type.Where(i => actions.Contains(i.TypeID)).OrderBy(i => i.TypeName).Select(i => i);
+                        ddlType.DataBind();    
+                    }
+                    else
+                    {
+                        ddlType.DataSource = context.Type.OrderBy(i => i.TypeName).Select(i => i);
+                        ddlType.DataBind();    
+                    }
+
+                    ddlBuildingForm.DataSource = context.BuildingForm.OrderBy(i => i.BuildingFormName).Select(i => i);
+                    ddlBuildingForm.DataBind();
+                    ddlBuildingForm.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+
+                    ddlBuildingType.DataSource = context.BuildingType.OrderBy(i => i.BuildingTypeName).Select(i => i);
+                    ddlBuildingType.DataBind();
+                    ddlBuildingType.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+
+                    ddlRegion.DataSource = context.Region.OrderBy(i => i.RegionName).Select(i => i);
+                    ddlRegion.DataBind();
+                    ddlRegion.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+
+                    ddlCity.DataSource = context.City.OrderBy(i => i.CityName).Select(i => i);
+                    ddlCity.DataBind();
+                    ddlCity.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+
+                    ddlCityRegion.Items.Insert(0, new ListItem {Text = "-------", Value = "-1"});
+
+                    ddlBuildingStatus.DataSource = context.BuildingStatus.OrderBy(i => i.BuildingStatusName).Select(i => i);
+                    ddlBuildingStatus.DataBind();
+
+                    #endregion
+
+                    #region Load Data
+
+                    if (iBuildingID != -1)
+                    {
+                        if (!HttpContext.Current.User.IsInRole("administrator") && !HttpContext.Current.User.IsInRole("moderator"))
+                        {
+                            pnlData.Enabled = false;
+                            trContactPhone.Visible = false;
+                            trUserName.Visible = false;
+                            trButtons.Visible = false;
+                            btnSave.Visible = false;
+                            btnDelete.Visible = false;
+                            btnAddImage.Visible = false;
+                        }
+
+                        var buildings = from i in context.Building
+                                        where i.BuildingID == iBuildingID
+                                        select i;
+
+                        if (buildings.Any())
+                        {
+                            var building = buildings.First();
+
+                            #region Fill Data
+
+                            tbStreet.Text = building.StreetAddress != null ? building.StreetAddress.Trim() : string.Empty;
+                            ddlBuildingType.SelectedValue = building.BuildingTypeRef.ToString();
+                            var iBuildingType = building.BuildingTypeRef;
+                            var buildingForm = context.BuildingType.Where(i => i.BuildingTypeID == iBuildingType).Select(i => i.BuildingFormRef).FirstOrDefault();
+                            if (buildingForm != null && ddlBuildingForm.Items.FindByValue(buildingForm.ToString()) != null)
+                            {
+                                ddlBuildingForm.SelectedValue = buildingForm.ToString();
+                            }
+                            ddlType.SelectedValue = building.TypeRef.ToString();
+                            tbRoom.Text = building.TotalRoomNumber.HasValue ? building.TotalRoomNumber.Value.ToString() : string.Empty;
+                            tbPrice.Text = building.Price.HasValue ? building.Price.Value.ToString() : string.Empty;
+                            tbCode.Text = building.Code != null ? building.Code.Trim() : string.Empty;
+                            tbComment.Text = building.Comment != null ? building.Comment.Trim() : string.Empty;
+                            ddlPhonePresent.SelectedValue = building.PhonePresent.HasValue ? (building.PhonePresent.Value ? "1" : "0") : "-1";
+                            tbKitchenSquare.Text = building.KitchenSquare.HasValue ? building.KitchenSquare.Value.ToString() : string.Empty;
+                            tbTotalSquare.Text = building.TotalSquare.HasValue ? building.TotalSquare.Value.ToString() : string.Empty;
+                            tbNonLivingSquare.Text = building.NonLivingSquare.HasValue ? building.NonLivingSquare.Value.ToString() : string.Empty;
+                            tbTotalFloors.Text = building.TotalFloor.HasValue ? building.TotalFloor.Value.ToString() : string.Empty;
+                            lblDateTime.Text = building.DateTimeModified.ToString("dd.MM.yyyy hh:mm");
+                            lblUserName.Text = building.UserName.ToString();
+                            tbContactPhone.Text = building.ContactPhone != null ? building.ContactPhone.Trim() : string.Empty;
+                            ddlBuildingStatus.SelectedValue = building.BuildingStatusRef.ToString();
+                            ddlIsHot.SelectedValue = building.IsHot ? "1" : "0";
+
+                            #endregion
+
+                            #region City and Region Info
+
+                            var iCityRegionID = building.CityRegionRef;
+
+                            var cityInfo = from i in context.CityRegion
+                                join j in context.City on i.CityRef equals j.CityID
+                                where i.CityRegionID == iCityRegionID
+                                select new
+                                {
+                                    j.RegionRef,
+                                    j.CityID
+                                };
+                            if (cityInfo.Any())
+                            {
+                                var cityData = cityInfo.First();
+
+                                var iRegionID = cityData.RegionRef;
+                                var iCityID = cityData.CityID;
+
+                                ddlRegion.SelectedValue = iRegionID.ToString();
+
+                                ddlCity.DataSource =
+                                    context.City.Where(i => i.RegionRef == iRegionID)
+                                        .OrderBy(i => i.CityName)
+                                        .Select(i => i);
+                                ddlCity.DataBind();
+                                ddlCity.Items.Insert(0, new ListItem {Text = "-------", Value = "-1"});
+
+                                if (ddlCity.Items.FindByValue(iCityID.ToString()) != null)
+                                {
+                                    ddlCity.SelectedValue = iCityID.ToString();
+                                }
+
+                                ddlCityRegion.DataSource =
+                                    context.CityRegion.Where(i => i.CityRef == iCityID)
+                                        .OrderBy(i => i.CityRegionName)
+                                        .Select(i => i);
+                                ddlCityRegion.DataBind();
+                                ddlCityRegion.Items.Insert(0, new ListItem {Text = "-------", Value = "-1"});
+
+                                if (ddlCityRegion.Items.FindByValue(building.CityRegionRef.ToString()) != null)
+                                {
+                                    ddlCityRegion.SelectedValue = building.CityRegionRef.ToString();
+                                }
+                            }
+
+                            #endregion
+
+                            DoBindRoomSquares();
+                            DoLoadImages();
+                        }
+                        else
+                        {
+                            Response.Redirect("~/Default.aspx");
+                        }
+                    }
+                    else
+                    {
+                        trDateTime.Visible = false;
+                        trUserName.Visible = false;
+                        trImages.Visible = false;
+                        lnkbtnAddRoomSquare.Enabled = false;
+                        btnAddImage.Visible = false;
+                        if (!HttpContext.Current.User.IsInRole("administrator") && !HttpContext.Current.User.IsInRole("moderator"))
+                        {
+                            Response.Redirect("~/Default.aspx");
+                        }
+                    }
+
+                    #endregion
+                }
+            }
+        }
+
+        [WebMethod, ScriptMethod]
+        public static List<string> GetStreets(string prefixText, int count, string contextKey)
+        {
+            using (var context = new RealtorEntities())
+            {
+                prefixText = prefixText.Trim();
+
+                var res = (from i in context.Building
+                           where i.StreetAddress.Contains(prefixText)
+                           orderby i.StreetAddress ascending 
+                           select i.StreetAddress).Distinct().ToList();
+
+                return res.Any() ? res : new List<string> { "Нічого не знайдено" };
+            }
+        }
+
+        protected void ddlRegion_OnSelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (ddlRegion.SelectedValue != string.Empty && ddlRegion.SelectedIndex != 0)
+            {
+                using (var context = new RealtorEntities())
+                {
+                    try
+                    {
+                        var iRegionID = int.Parse(ddlRegion.SelectedValue);
+
+                        ddlCity.DataSource = context.City.Where(i => i.RegionRef == iRegionID).OrderBy(i => i.CityName).Select(i => i);
+                        ddlCity.DataBind();
+                        ddlCity.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+
+                        var iCityID = ddlCity.SelectedValue != string.Empty && ddlCity.SelectedIndex != 0 ? int.Parse(ddlCity.SelectedValue) : -1;
+
+                        ddlCityRegion.DataSource = context.CityRegion.Where(i => i.CityRef == iCityID).OrderBy(i => i.CityRegionName).Select(i => i);
+                        ddlCityRegion.DataBind();
+                        ddlCityRegion.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+                    }
+                    catch (FormatException)
+                    {
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                ddlCity.Items.Clear();
+                ddlCity.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+            }
+        }
+
+        protected void btnSave_Click(object sender, EventArgs e)
+        {
+            if (HttpContext.Current.User.IsInRole("administrator") || HttpContext.Current.User.IsInRole("moderator"))
+            {
+                try
+                {
+                    using (var context = new RealtorEntities())
+                    {
+                        if (iBuildingID == -1)
+                        {
+                            if (ddlCityRegion.SelectedValue == "-1")
+                            {
+                                Alert.Show("Виберіть район в місті");
+                                return;
+                            }
+
+                            #region Add New
+
+                            var build = new Building();
+                            build.StreetAddress = tbStreet.Text.Trim();
+                            build.BuildingTypeRef = int.Parse(ddlBuildingType.SelectedValue);
+                            build.TypeRef = int.Parse(ddlType.SelectedValue);
+                            if (tbRoom.Text.Trim() != string.Empty)
+                            {
+                                build.TotalRoomNumber = int.Parse(tbRoom.Text.Trim());
+                            }
+                            if (tbPrice.Text.Trim() != string.Empty)
+                            {
+                                build.Price = float.Parse(tbPrice.Text.Trim());
+                            }
+                            build.Code = tbCode.Text.Trim();
+                            build.Comment = tbComment.Text.Trim();
+                            if (ddlPhonePresent.SelectedValue != "-1")
+                            {
+                                build.PhonePresent = ddlPhonePresent.SelectedValue == "1";
+                            }
+                            if (tbKitchenSquare.Text.Trim() != string.Empty)
+                            {
+                                build.KitchenSquare = float.Parse(tbKitchenSquare.Text.Trim());
+                            }
+                            if (tbTotalSquare.Text.Trim() != string.Empty)
+                            {
+                                build.TotalSquare = float.Parse(tbTotalSquare.Text.Trim());
+                            }
+                            if (tbNonLivingSquare.Text.Trim() != string.Empty)
+                            {
+                                build.NonLivingSquare = float.Parse(tbNonLivingSquare.Text.Trim());
+                            }
+                            if (tbTotalFloors.Text.Trim() != string.Empty)
+                            {
+                                build.TotalFloor = int.Parse(tbTotalFloors.Text.Trim());
+                            }
+                            build.DateTimeModified = DateTime.Now;
+                            build.UserName = HttpContext.Current.User.Identity.Name.ToLower();
+                            build.ContactPhone = tbContactPhone.Text.Trim();
+                            build.BuildingStatusRef = int.Parse(ddlBuildingStatus.SelectedValue);
+                            build.IsHot = ddlIsHot.SelectedValue == "1";
+                            build.CityRegionRef = int.Parse(ddlCityRegion.SelectedValue);
+
+                            context.AddToBuilding(build);
+                            context.SaveChanges();
+
+                            Alert.Show("Дані збережено");
+
+                            Response.Redirect("~/BuildingInfo.aspx?id=" + build.BuildingID);
+
+                            #endregion
+                        }
+                        else
+                        {
+                            #region Update
+
+                            var builds = from i in context.Building
+                                         where i.BuildingID == iBuildingID
+                                         select i;
+
+                            if (builds.Any())
+                            {
+                                var build = builds.First();
+
+                                build.StreetAddress = tbStreet.Text.Trim();
+                                build.BuildingTypeRef = int.Parse(ddlBuildingType.SelectedValue);
+                                build.TypeRef = int.Parse(ddlType.SelectedValue);
+                                if (tbRoom.Text.Trim() != string.Empty)
+                                {
+                                    build.TotalRoomNumber = int.Parse(tbRoom.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.TotalRoomNumber = null;
+                                }
+                                if (tbPrice.Text.Trim() != string.Empty)
+                                {
+                                    build.Price = float.Parse(tbPrice.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.Price = null;
+                                }
+                                build.Code = tbCode.Text.Trim();
+                                build.Comment = tbComment.Text.Trim();
+                                if (ddlPhonePresent.SelectedValue != "-1")
+                                {
+                                    build.PhonePresent = ddlPhonePresent.SelectedValue == "1";
+                                }
+                                else
+                                {
+                                    build.PhonePresent = null;
+                                }
+                                if (tbKitchenSquare.Text.Trim() != string.Empty)
+                                {
+                                    build.KitchenSquare = float.Parse(tbKitchenSquare.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.KitchenSquare = null;
+                                }
+                                if (tbTotalSquare.Text.Trim() != string.Empty)
+                                {
+                                    build.TotalSquare = float.Parse(tbTotalSquare.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.TotalSquare = null;
+                                }
+                                if (tbNonLivingSquare.Text.Trim() != string.Empty)
+                                {
+                                    build.NonLivingSquare = float.Parse(tbNonLivingSquare.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.NonLivingSquare = null;
+                                }
+                                if (tbTotalFloors.Text.Trim() != string.Empty)
+                                {
+                                    build.TotalFloor = int.Parse(tbTotalFloors.Text.Trim());
+                                }
+                                else
+                                {
+                                    build.TotalFloor = null;
+                                }
+                                build.DateTimeModified = DateTime.Now;
+                                build.UserName = HttpContext.Current.User.Identity.Name.ToLower();
+                                build.ContactPhone = tbContactPhone.Text.Trim();
+                                build.BuildingStatusRef = int.Parse(ddlBuildingStatus.SelectedValue);
+                                build.IsHot = ddlIsHot.SelectedValue == "1";
+                                build.CityRegionRef = int.Parse(ddlCityRegion.SelectedValue);
+
+                                context.SaveChanges();
+
+                                Alert.Show("Дані збережено");
+                            }
+
+                            #endregion
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Alert.Show("Виникла помилка. Дані не збережено");
+                }
+            }
+            else
+            {
+                Response.Redirect("~/Default.aspx");
+            }
+        }
+
+        protected void btnDelete_Click(object sender, EventArgs e)
+        {
+            if (iBuildingID != -1 && (HttpContext.Current.User.IsInRole("administrator") || HttpContext.Current.User.IsInRole("moderator")))
+            {
+                using (var context = new RealtorEntities())
+                {
+                    var build = from i in context.Building
+                                where i.BuildingID == iBuildingID
+                                select i;
+
+                    var rooms = from i in context.RoomSquare
+                                where i.BuildingRef == iBuildingID
+                                select i;
+
+                    foreach (var i in rooms)
+                    {
+                        context.DeleteObject(i);
+                        context.SaveChanges();
+                    }
+
+                    var floors = from i in context.BuildingFloor
+                                 where i.BuildingRef == iBuildingID
+                                 select i;
+
+                    foreach (var i in floors)
+                    {
+                        context.DeleteObject(i);
+                        context.SaveChanges();
+                    }
+
+                    var images = from i in context.BuildingImage
+                                 where i.BuildingRef == iBuildingID
+                                 select i;
+
+                    foreach (var i in images)
+                    {
+                        context.DeleteObject(i);
+                        context.SaveChanges();
+                    }
+
+                    context.DeleteObject(build);
+                    context.SaveChanges();
+                }
+
+                Response.Redirect("~/Default.aspx");
+            }
+        }
+
+        protected void ddlBuildingForm_OnSelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (ddlBuildingForm.SelectedValue != string.Empty && ddlBuildingForm.SelectedIndex != 0)
+            {
+                try
+                {
+                    var iFormID = int.Parse(ddlBuildingForm.SelectedValue);
+
+                    using (var context = new RealtorEntities())
+                    {
+                        ddlBuildingType.DataSource = context.BuildingType.Where(i => i.BuildingFormRef == iFormID).OrderBy(i => i.BuildingTypeName).Select(i => i);
+                        ddlBuildingType.DataBind();
+                        ddlBuildingType.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+                    }
+                }
+                catch (FormatException)
+                {
+                    return;
+                }
+            }
+        }
+
+        protected void lnkbtnAddRoomSquare_OnClick(object sender, EventArgs e)
+        {
+            if (iBuildingID == -1)
+            {
+                Alert.Show("Спершу збережіть інформацію про об'єкт");
+            }
+            else
+            {
+                if (tbRoomSquare.Text.Trim() != string.Empty)
+                {
+                    try
+                    {
+                        var squareValue = float.Parse(tbRoomSquare.Text.Trim());
+
+                        using (var context = new RealtorEntities())
+                        {
+                            context.AddToRoomSquare(new RoomSquare {BuildingRef = iBuildingID, RoomSquareValue = squareValue});
+                            context.SaveChanges();
+
+                            tbRoomSquare.Text = string.Empty;
+                        }
+
+                        DoBindRoomSquares();
+                    }
+                    catch (FormatException)
+                    {
+                        Alert.Show("Коректно введіть дані");
+                    }
+                }
+                else
+                {
+                    Alert.Show("Коректно введіть дані");
+                }
+            }
+        }
+
+        protected void btnDeleteRoomSquare_Click(object sender, EventArgs e)
+        {
+            var button = sender as LinkButton;
+
+            try
+            {
+                #region Try to delete 
+
+                using (var context = new RealtorEntities())
+                {
+                    var sid = int.Parse(((TextBox)button.NamingContainer.FindControl("tbRoomSquareIDHid2")).Text.Trim());
+
+                    var roomSquare = from i in context.RoomSquare
+                                     where i.RoomSquareID == sid
+                                     select i;
+
+                    if (roomSquare.Any())
+                    {
+                        context.DeleteObject(roomSquare.First());
+                        context.SaveChanges();
+                    }
+                }
+
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                Alert.Show(ex.ToString());
+            }
+
+            DoBindRoomSquares();
+        }
+
+        private void DoBindRoomSquares()
+        {
+            #region Room Info
+
+            using (var context = new RealtorEntities())
+            {
+                if (HttpContext.Current.User.IsInRole("administrator") || HttpContext.Current.User.IsInRole("moderator"))
+                {
+
+                    phRoomSquares.Visible = true;
+                    lblRoomSquares.Visible = false;
+
+                    var rooms = from i in context.RoomSquare
+                                where i.BuildingRef == iBuildingID
+                                orderby i.RoomSquareValue ascending 
+                                select i;
+
+                    gvRoomSquares.DataSource = rooms;
+                    gvRoomSquares.DataBind();
+                    gvRoomSquares.Visible = rooms.Any();
+                }
+                else
+                {
+                    lblRoomSquares.Text = string.Join(", ", (from i in context.RoomSquare
+                                                             where i.BuildingRef == iBuildingID
+                                                             orderby i.RoomSquareValue ascending
+                                                             select i.RoomSquareValue).ToList());
+                    phRoomSquares.Visible = false;
+                    lblRoomSquares.Visible = true;
+                }
+            }
+
+            #endregion 
+        }
+
+        protected void ddlCity_OnSelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (ddlCity.SelectedValue != string.Empty && ddlCity.SelectedIndex != 0)
+            {
+                using (var context = new RealtorEntities())
+                {
+                    try
+                    {
+                        var iCityID = int.Parse(ddlCity.SelectedValue);
+
+                        ddlCityRegion.DataSource = context.CityRegion.Where(i => i.CityRef == iCityID).OrderBy(i => i.CityRegionName).Select(i => i);
+                        ddlCityRegion.DataBind();
+                        ddlCityRegion.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+                    }
+                    catch (FormatException)
+                    {
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                ddlCityRegion.Items.Clear();
+                ddlCityRegion.Items.Insert(0, new ListItem { Text = "-------", Value = "-1" });
+            }
+        }
+
+        protected void btnCancel_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("~/Default.aspx");
+        }
+
+        protected void btnAddImage_OnClick(object sender, EventArgs e)
+        {
+            mpePhoto2.Show();
+        }
+
+        #region File Upload
+
+        protected void asyncFileUpload_UploadedComplete(object sender, AsyncFileUploadEventArgs e)
+        {
+            var fileUploadReceive = asyncFileUpload.PostedFile.FileName;
+            var uploadedFileSize = asyncFileUpload.PostedFile.ContentLength;
+
+            if (uploadedFileSize < 16777216)
+            {
+                using (var context = new RealtorEntities())
+                {
+                    if (iBuildingID == -1)
+                    {
+                        return;
+                    }
+
+                    context.AddToBuildingImage(new BuildingImage
+                                                {
+                                                    BuildingRef = iBuildingID,
+                                                    ImagePath = fileUploadReceive
+                                                });
+                    context.SaveChanges();
+                }
+
+                asyncFileUpload.SaveAs(MapPath("Files\\" + fileUploadReceive));
+            }
+        }
+
+        protected void asyncFileUpload_UploadedFileError(object sender, AsyncFileUploadEventArgs e)
+        {
+
+        }
+
+        protected void lnkbtnFileModalPopup_Click(object sender, EventArgs e)
+        {
+            if (iBuildingID != -1)
+            {
+                mpePhoto2.Show();
+            }
+        }
+
+        protected void lnkbtnCloseFileModalPopup_Click(object sender, EventArgs e)
+        {
+            mpePhoto2.Hide();
+
+            DoLoadImages();
+        }
+
+        #endregion
+
+        private void DoLoadImages()
+        {
+            if (iBuildingID != -1)
+            {
+                using (var context = new RealtorEntities())
+                {
+                    var images = from i in context.BuildingImage
+                                 where i.BuildingRef == iBuildingID
+                                 select i;
+
+                    repImages.DataSource = images;
+                    repImages.DataBind();
+
+                    trImages.Visible = images.Any();
+                }
+
+                repImages.Visible = true;
+
+            }
+            else
+            {
+                repImages.Visible = false;
+                trImages.Visible = false;
+            }
+        }
+
+        protected void lnkbtnDeleteImage_OnClick(object sender, EventArgs e)
+        {
+            var button = sender as LinkButton;
+
+            try
+            {
+                #region Try to delete
+
+                using (var context = new RealtorEntities())
+                {
+                    var sid = int.Parse(((TextBox)button.NamingContainer.FindControl("tbBuildingImageIDHid")).Text.Trim());
+
+                    var images = from i in context.BuildingImage
+                                 where i.BuildingImageID == sid
+                                 select i;
+
+                    if (images.Any())
+                    {
+                        context.DeleteObject(images.First());
+                        context.SaveChanges();
+                    }
+                }
+
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                Alert.Show(ex.ToString());
+            }
+
+            DoLoadImages(); 
+        }
+    }
+}
